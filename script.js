@@ -22,54 +22,62 @@ document.getElementById('btnEncrypt').addEventListener('click', async () => {
         return;
     }
 
+    // تحويل النص لـ Base64 لضمان ثباته
     const utf8Bytes = new TextEncoder().encode(text);
     const base64Text = btoa(String.fromCharCode(...utf8Bytes));
     const textBytes = new TextEncoder().encode(base64Text);
-    
-    const passwordHash = await sha256(password);
-    const rand = createPRNG(passwordHash);
 
     const canvas = document.getElementById('chaosCanvas');
     const ctx = canvas.getContext('2d');
+    
+    // إيقاف تشغيل منعم الحواف تماماً لضمان عدم ضياع البيانات
+    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
+    // تعبئة الخلفية باللون الأسود الأساسي
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const totalPoints = 300; 
-    const points = [];
-    for (let i = 0; i < totalPoints; i++) {
-        points.push({
-            x: rand() * (canvas.width - 40) + 20,
-            y: rand() * (canvas.width - 40) + 20,
-            size: rand() * 3 + 2,
-            baseColor: Math.floor(rand() * 3)
-        });
-    }
+    const passwordHash = await sha256(password);
+    const rand = createPRNG(passwordHash);
+
+    // 1. توليد إحداثيات البكسلات الحاملة للبيانات بناءً على كلمة المرور
+    // هذه المربعات صلبة ومستحيل للمتصفح أن يعدل قيمتها الرقمية
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = imgData.data;
 
     for (let i = 0; i < textBytes.length; i++) {
         const byte = textBytes[i];
-        const p1Idx = Math.floor(rand() * points.length);
-        const p2Idx = Math.floor(rand() * points.length);
         
-        const p1 = points[p1Idx];
-        const p2 = points[p2Idx];
+        // حساب موقع فريد لكل بايت مبني على الكلمة السرية
+        const x = Math.floor(rand() * canvas.width);
+        const y = Math.floor(rand() * canvas.height);
+        const pixelIdx = (y * canvas.width + x) * 4;
 
-        ctx.strokeStyle = `rgb(${byte}, ${Math.floor(rand() * 50)}, 255)`;
-        ctx.lineWidth = 2;
-        
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
+        // حقن البيانات في قنوات الألوان مباشرة كمصفوفة صامتة
+        pixels[pixelIdx] = byte;       // R: يحمل الحرف
+        pixels[pixelIdx + 1] = 77;     // G: علامة تأكيدية (مفتاح التحقق)
+        pixels[pixelIdx + 2] = 255;    // B: هالة التثبيت
+        pixels[pixelIdx + 3] = 255;    // A: معتم تماماً
     }
+    ctx.putImageData(imgData, 0, 0);
 
-    points.forEach((p) => {
-        ctx.fillStyle = p.baseColor === 0 ? '#3b82f6' : (p.baseColor === 1 ? '#60a5fa' : '#ffffff');
+    // 2. الآن نرسم طبقة "الفوضى البصرية" فوق البيانات للتمويه
+    const totalPoints = 250;
+    for (let i = 0; i < totalPoints; i++) {
+        ctx.strokeStyle = `rgba(59, 130, 246, 0.15)`; // شفافية خفيفة لا تؤثر على البكسل الخلفي
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.moveTo(rand() * canvas.width, rand() * canvas.height);
+        ctx.lineTo(rand() * canvas.width, rand() * canvas.height);
+        ctx.stroke();
+
+        // رسم كتل النجوم
+        ctx.fillStyle = rand() > 0.5 ? '#60a5fa' : '#ffffff';
+        ctx.beginPath();
+        ctx.arc(rand() * canvas.width, rand() * canvas.height, rand() * 2 + 1, 0, Math.PI * 2);
         ctx.fill();
-    });
+    }
 
     document.getElementById('btnDownload').style.display = 'block';
 });
