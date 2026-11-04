@@ -5,12 +5,13 @@ async function sha256(message) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function createPRNG(seedHex) {
-    let seed = parseInt(seedHex.substring(0, 8), 16);
-    return function() {
-        seed = (seed * 1664525 + 1013904223) % 4294967296;
-        return seed / 4294967296;
-    };
+// دالة تشفير النص بكلمة المرور (XOR) لضمان الصعوبة الأمنية
+function xorEncryptDecrypt(text, key) {
+    let result = "";
+    for (let i = 0; i < text.length; i++) {
+        result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(unescape(encodeURIComponent(result))); // تحويل لـ Base64 آمن
 }
 
 document.getElementById('btnEncrypt').addEventListener('click', async () => {
@@ -22,70 +23,56 @@ document.getElementById('btnEncrypt').addEventListener('click', async () => {
         return;
     }
 
-    // تحويل النص لـ Base64 لضمان ثباته
-    const utf8Bytes = new TextEncoder().encode(text);
-    const base64Text = btoa(String.fromCharCode(...utf8Bytes));
-    const textBytes = new TextEncoder().encode(base64Text);
-
     const canvas = document.getElementById('chaosCanvas');
     const ctx = canvas.getContext('2d');
-    
-    // إيقاف تشغيل منعم الحواف تماماً لضمان عدم ضياع البيانات
-    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // تعبئة الخلفية باللون الأسود الأساسي
+    // رسم شكل فوضوي جمالي مذهل
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const passwordHash = await sha256(password);
-    const rand = createPRNG(passwordHash);
-
-    // 1. توليد إحداثيات البكسلات الحاملة للبيانات بناءً على كلمة المرور
-    // هذه المربعات صلبة ومستحيل للمتصفح أن يعدل قيمتها الرقمية
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const pixels = imgData.data;
-
-    for (let i = 0; i < textBytes.length; i++) {
-        const byte = textBytes[i];
-        
-        // حساب موقع فريد لكل بايت مبني على الكلمة السرية
-        const x = Math.floor(rand() * canvas.width);
-        const y = Math.floor(rand() * canvas.height);
-        const pixelIdx = (y * canvas.width + x) * 4;
-
-        // حقن البيانات في قنوات الألوان مباشرة كمصفوفة صامتة
-        pixels[pixelIdx] = byte;       // R: يحمل الحرف
-        pixels[pixelIdx + 1] = 77;     // G: علامة تأكيدية (مفتاح التحقق)
-        pixels[pixelIdx + 2] = 255;    // B: هالة التثبيت
-        pixels[pixelIdx + 3] = 255;    // A: معتم تماماً
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    // 2. الآن نرسم طبقة "الفوضى البصرية" فوق البيانات للتمويه
-    const totalPoints = 250;
-    for (let i = 0; i < totalPoints; i++) {
-        ctx.strokeStyle = `rgba(59, 130, 246, 0.15)`; // شفافية خفيفة لا تؤثر على البكسل الخلفي
-        ctx.lineWidth = 1;
+    
+    // توليد شكل بصري معقد لا علاقة له بالبيانات لمنع تتبعها
+    let MathRand = () => Math.random();
+    for (let i = 0; i < 180; i++) {
+        ctx.strokeStyle = `rgba(59, 130, 246, ${MathRand() * 0.4})`;
+        ctx.lineWidth = MathRand() * 3;
         ctx.beginPath();
-        ctx.moveTo(rand() * canvas.width, rand() * canvas.height);
-        ctx.lineTo(rand() * canvas.width, rand() * canvas.height);
+        ctx.moveTo(MathRand() * canvas.width, MathRand() * canvas.height);
+        ctx.lineTo(MathRand() * canvas.width, MathRand() * canvas.height);
         ctx.stroke();
-
-        // رسم كتل النجوم
-        ctx.fillStyle = rand() > 0.5 ? '#60a5fa' : '#ffffff';
-        ctx.beginPath();
-        ctx.arc(rand() * canvas.width, rand() * canvas.height, rand() * 2 + 1, 0, Math.PI * 2);
-        ctx.fill();
     }
 
-    document.getElementById('btnDownload').style.display = 'block';
+    // 1. تشفير النص باستخدام المفتاح المستخرج من الهاش SHA-256
+    const key = await sha256(password);
+    const encryptedText = xorEncryptDecrypt(text, key);
+
+    // 2. تحويل الصورة إلى بايتات وحقن النص المشفر في نهايتها كعلامة سرية (Magic Marker)
+    canvas.toBlob(async (blob) => {
+        const arrayBuffer = await blob.arrayBuffer();
+        const originalBytes = new Uint8Array(arrayBuffer);
+        
+        // تحويل النص المشفر إلى بايتات وإضافة علامة مميزة قبلها ليعرفها فاحص الكود
+        const marker = "||CHAOS_KEY||";
+        const secretPayload = new TextEncoder().encode(marker + encryptedText);
+        
+        // دمج البايتات معاً في ملف واحد صلب
+        const finalBytes = new Uint8Array(originalBytes.length + secretPayload.length);
+        finalBytes.set(originalBytes);
+        finalBytes.set(secretPayload, originalBytes.length);
+
+        // تجهيز الملف النهائي للتحميل
+        const finalBlob = new Blob([finalBytes], { type: 'image/png' });
+        window.generatedBlobUrl = URL.createObjectURL(finalBlob);
+        
+        document.getElementById('btnDownload').style.display = 'block';
+    }, 'image/png');
 });
 
 document.getElementById('btnDownload').addEventListener('click', () => {
-    const canvas = document.getElementById('chaosCanvas');
-    const link = document.createElement('a');
-    link.download = 'chaos_signature.png';
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+    if (window.generatedBlobUrl) {
+        const link = document.createElement('a');
+        link.download = 'chaos_signature.png';
+        link.href = window.generatedBlobUrl;
+        link.click();
+    }
 });
