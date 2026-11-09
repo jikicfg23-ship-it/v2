@@ -3,7 +3,8 @@
     const allowedPasswords = [
         "MySecret2027",
         "WelcomePass","147258", 
-        "123456"
+        "123456", 
+        "159357" 
     ];
 
     // 2. النصوص المترجمة للغات الثلاث
